@@ -1,108 +1,103 @@
-pragma solidity ^0.4.21;
+pragma solidity ^0.4.11;
+import './Utils.sol';
+import './interfaces/IERC20Token.sol';
 
-
-contract BasicToken {
-    uint256 public totalSupply;
-    bool public allowTransfer;
-
-    function balanceOf(address _owner) constant returns (uint256 balance);
-    function transfer(address _to, uint256 _value) returns (bool success);
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success);
-    function approve(address _spender, uint256 _value) returns (bool success);
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining);
+/**
+    ERC20 Standard Token implementation
+*/
+contract ERC20Token is IERC20Token, Utils {
+    string public standard = "Token 0.1";
+    string public name = "";
+    string public symbol = "";
+    uint8 public decimals = 0;
+    uint256 public totalSupply = 0;
+    mapping (address => uint256) public balanceOf;
+    mapping (address => mapping (address => uint256)) public allowance;
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
     event Approval(address indexed _owner, address indexed _spender, uint256 _value);
-}
 
-contract StandardToken is BasicToken {
+    /**
+        @dev constructor
 
-    function transfer(address _to, uint256 _value) returns (bool success) {
-        require(allowTransfer);
-        require(balances[msg.sender] >= _value);
-        balances[msg.sender] -= _value;
-        balances[_to] += _value;
+        @param _name        token name
+        @param _symbol      token symbol
+        @param _decimals    decimal points, for display purposes
+    */
+    function ERC20Token(string _name, string _symbol, uint8 _decimals) {
+        require(bytes(_name).length > 0 && bytes(_symbol).length > 0); // validate input
+
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
+    }
+
+    /**
+        @dev send coins
+        throws on any error rather then return a false flag to minimize user errors
+
+        @param _to      target address
+        @param _value   transfer amount
+
+        @return true if the transfer was successful, false if it wasn't
+    */
+    function transfer(address _to, uint256 _value)
+        public
+        validAddress(_to)
+        returns (bool success)
+    {
+        balanceOf[msg.sender] = safeSub(balanceOf[msg.sender], _value);
+        balanceOf[_to] = safeAdd(balanceOf[_to], _value);
         Transfer(msg.sender, _to, _value);
         return true;
     }
 
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        require(allowTransfer);
-        require(balances[_from] >= _value && allowed[_from][msg.sender] >= _value);
-        balances[_to] += _value;
-        balances[_from] -= _value;
-        allowed[_from][msg.sender] -= _value;
+    /**
+        @dev an account/contract attempts to get the coins
+        throws on any error rather then return a false flag to minimize user errors
+
+        @param _from    source address
+        @param _to      target address
+        @param _value   transfer amount
+
+        @return true if the transfer was successful, false if it wasn't
+    */
+    function transferFrom(address _from, address _to, uint256 _value)
+        public
+        validAddress(_from)
+        validAddress(_to)
+        returns (bool success)
+    {
+        allowance[_from][msg.sender] = safeSub(allowance[_from][msg.sender], _value);
+        balanceOf[_from] = safeSub(balanceOf[_from], _value);
+        balanceOf[_to] = safeAdd(balanceOf[_to], _value);
         Transfer(_from, _to, _value);
         return true;
     }
 
-    function balanceOf(address _owner) constant returns (uint256 balance) {
-        return balances[_owner];
-    }
+    /**
+        @dev allow another account/contract to spend some tokens on your behalf
+        throws on any error rather then return a false flag to minimize user errors
 
-    function approve(address _spender, uint256 _value) returns (bool success) {
-        require(allowTransfer);
-        allowed[msg.sender][_spender] = _value;
+        also, to minimize the risk of the approve/transferFrom attack vector
+        (see https://docs.google.com/document/d/1YLPtQxZu1UAvO9cZ1O2RPXBbT0mooh4DYKjA_jp-RLM/), approve has to be called twice
+        in 2 separate transactions - once to change the allowance to 0 and secondly to change it to the new allowance value
+
+        @param _spender approved address
+        @param _value   allowance amount
+
+        @return true if the approval was successful, false if it wasn't
+    */
+    function approve(address _spender, uint256 _value)
+        public
+        validAddress(_spender)
+        returns (bool success)
+    {
+        // if the allowance isn't 0, it can only be updated to 0 to prevent an allowance change immediately after withdrawal
+        require(_value == 0 || allowance[msg.sender][_spender] == 0);
+
+        allowance[msg.sender][_spender] = _value;
         Approval(msg.sender, _spender, _value);
-        return true;
-    }
-
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
-      return allowed[_owner][_spender];
-    }
-
-    mapping (address => uint256) balances;
-    mapping (address => mapping (address => uint256)) allowed;
-}
-
-
-contract Token is StandardToken {
-
-    string public name = "BASIC ERC20 SALE";
-    uint8 public decimals = 18;
-    string public symbol = "BASIC";
-    string public version = 'BASIC 0.1';
-    address public mintableAddress;
-
-    function Token(address sale_address) {
-        balances[msg.sender] = 0;
-        totalSupply = 0;
-        name = name;
-        decimals = decimals;
-        symbol = symbol;
-        mintableAddress = sale_address;
-        allowTransfer = true;
-        createTokens();
-    }
-
-    // creates all tokens 5 million
-    // this address will hold all tokens
-    // all community contrubutions coins will be taken from this address
-    function createTokens() internal {
-        uint256 total = 5000000000000000000000000;
-        balances[this] = total;
-        totalSupply = total;
-    }
-
-    function changeTransfer(bool allowed) external {
-        require(msg.sender == mintableAddress);
-        allowTransfer = allowed;
-    }
-
-    function mintToken(address to, uint256 amount) external returns (bool success) {
-        require(msg.sender == mintableAddress);
-        require(balances[this] >= amount);
-        balances[this] -= amount;
-        balances[to] += amount;
-        Transfer(this, to, amount);
-        return true;
-    }
-
-    function approveAndCall(address _spender, uint256 _value, bytes _extraData) returns (bool success) {
-        allowed[msg.sender][_spender] = _value;
-        Approval(msg.sender, _spender, _value);
-
-        require(_spender.call(bytes4(bytes32(sha3("receiveApproval(address,uint256,address,bytes)"))), msg.sender, _value, this, _extraData));
         return true;
     }
 }
